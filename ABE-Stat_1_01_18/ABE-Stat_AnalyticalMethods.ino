@@ -313,12 +313,15 @@ void DifferentialPulseVoltammetry() {
 }
 
 void ElectrochemicalImpedanceSpectroscopy() {
-      AD5933_PowerOn(false);
+      AD5933_PowerDown();
       MCLK_Enable(false);
       TIA_LMP7721();  // initially if analyzing low frequencies, connect TIA output through LMP7721 to ADC (ADS1220)...
       DAC_AD5061_Connect(true); // connect DAC from AD5061 to network...
       AD5933_Connect(false); // for arbitrary bias need to connect voltage sources from DAC (AD5061) and network analyzer (AD5933)
       setTIAGain(0x03); // initially start at most sensitive gain that for small frequencies analyzed with ADS1220 high gain should be OK at first...
+      Serial.print("mElectrodeConfiguration: ");
+      Serial.print(electrodeConfig);
+      Serial.print('\t');
       resetElectrodeConfig();
       
       double analysisFrequency = Serial.parseFloat();  // start frequency (in Hz)
@@ -335,15 +338,28 @@ void ElectrochemicalImpedanceSpectroscopy() {
       if (biasVoltage < 0) maxVoltage = biasVoltage - excitationVoltage();
       DAC_AD5061_SetCalibratedVoltage(maxVoltage);  // make sure applied signal magnitude is maximum value of AC component and bias, preserving the sign of applied voltage
 
+      boolean noBias = false;
+      if ((-0.005 < biasVoltage) && (biasVoltage < 0.005)) noBias = true; // if bias Voltage is less than smallest excitation amplitude, let's just assume
+
+      if (noBias) delay(2000);
+      
       double currentGarbage = cellCurrent();  // just invoke cellCurrent() function to find TIAGain setting for measuring current before actually recording data.
+
+      if (noBias) {
+          lowFZ = maxVoltage * 1e9 / currentGarbage;
+          lowFZ = abs(lowFZ); // (absolute function in arduino does odd things if mixed with other mathematical operations...
+          lastKnownZ = lowFZ;
+      }          
       
       DAC_AD5061_SetCalibratedVoltage(biasVoltage); // after empirically determining the best gain setting for AC + DC component signal to not saturate TIA, return to biasVoltage (DC)
       boolean endOfAnalysis = equilibrationPeriod();  // request and wait the duration of equilibration period; returns "true" if user exits analysis during equilibration...
 
       currentGarbage = ADS1220_Diff_Voltage(0x02, 0x00) * 1e3 / TIAGain;  // now measure equilibrium current (don't let TIAgain autorange any more) to be able to estimate the DC impedance.
-      lastKnownZ = (biasVoltage * 1e9 / currentGarbage);
-      lastKnownZ = abs(lastKnownZ);
-      lowFZ = lastKnownZ; // we'll keep this as a value to subtract out expected bias current signal from full scale TIA range to make sure we don't saturate it...
+      if (!noBias) {
+          lastKnownZ = (biasVoltage * 1e9 / currentGarbage);
+          lastKnownZ = abs(lastKnownZ);
+          lowFZ = lastKnownZ; // we'll keep this as a value to subtract out expected bias current signal from full scale TIA range to make sure we don't saturate it...
+      }
       lastKnownPhase = 0.0; // estimate approximate cell impedance values from DC observations (assuming we're starting at low frequency, impedance is probably resistive...
             // after equilibration 
       Serial.print("mEquilibrium current: ");
@@ -375,13 +391,13 @@ void ElectrochemicalImpedanceSpectroscopy() {
       if (biasVoltage > 0.05) { // if biasVoltage is significant, then dial down gain a bit if looks like there's not much margin to apply AC component of signal...
             double voltageGarbage = abs(currentGarbage * TIAGain / 1e3);
             if (voltageGarbage * (1 + excitationVoltage() / abs(biasVoltage)) > 1.0) TIAGainCode--;  
-      }*/
+      }
       if (TIAGainCode == 0x03) {
             TIAGainCode--; // don't allow setting to go to highest gain for use of AD5933
             openCircuitConfig();
             setTIAGain(TIAGainCode);
             resetElectrodeConfig(); // put network in open circuit configuration while switching gains, then restore (try to limit transients by changing amplifier gain)
-      }
+      }*/
       
       //AD5933_Connect(true); // connect cell input to network analyzer  don't ever connect in analytical method except within startAD5933Synthsyzer, after initializing / starting frequency sweep
             // otherwise will be subject to very large voltage transients as synthesizer signal is grounded when device is reset for new frequency
@@ -459,7 +475,7 @@ void ElectrochemicalImpedanceSpectroscopy() {
       if (!endOfAnalysis) measureReportImpedance(endFrequency / fCLK_Factor);
       electrodeConfig = OPEN_CIRCUIT_CONFIG;
       resetElectrodeConfig(); // (reset configuration before turning off AD5933 or ADG715 might not see instruction; should always be in two electrode config for calibration in any case)
-      AD5933_PowerOn(false);
+      AD5933_PowerDown();
       MCLK_Enable(false);
       TIA_LMP7721();  // put settings back onto LMP7721 transimpedance amplifier...
       DAC_AD5061_Connect(true); // connect DAC from AD5061 to network...
@@ -519,12 +535,12 @@ void ElectrochemicalImpedanceSpectroscopy() {
             localGain = Gain2;
             break;
           default:
-          localGain = Gain2;
+            localGain = Gain2;
             break;
         }
         Serial.print("mlowFZ: ");
         Serial.print(lowFZ, 2);
-        Serial.print("mohm lastKnownZ: ");
+        Serial.print("ohm lastKnownZ: ");
         Serial.print(lastKnownZ, 2);
         double radPhase = lastKnownPhase * PI / 180.0;
         Serial.print("ohm AC amplitude:");
@@ -532,7 +548,7 @@ void ElectrochemicalImpedanceSpectroscopy() {
         Serial.print(ACAmplitude);
         Serial.print("V DC out voltage:");
         double realVoltage = (1.0 * localGain * biasVoltage) / lowFZ;
-        //realVoltage = abs(realVoltage);
+        realVoltage = abs(realVoltage);
         Serial.print(realVoltage);
         Serial.print("V real comp (cos): ");
         double realAC = (localGain * 1.0 * cos(radPhase) * ACAmplitude) / lastKnownZ;
@@ -561,7 +577,7 @@ void ElectrochemicalImpedanceSpectroscopy() {
  void measureReportImpedance(double f) {
           delay(1);
           byte localTIAGainCode = TIAGainCode;  // recall last TIAGainCode (don't let gain increase as we increase frequency- recipe for saturation
-          while ((expectedTIAVout(localTIAGainCode) > 1.2) && ((localTIAGainCode > 0x00) || PGAx5Setting)) { // while anticipated voltage is too high, turn down the gain and or PGA setting
+          while ((expectedTIAVout(localTIAGainCode) > 1.1) && ((localTIAGainCode > 0x00) || PGAx5Setting)) { // while anticipated voltage is too high, turn down the gain and or PGA setting
                 if (PGAx5Setting) {
                     PGAx5Setting = false;
                 }
@@ -576,31 +592,17 @@ void ElectrochemicalImpedanceSpectroscopy() {
               openCircuitConfig();
               setTIAGain(localTIAGainCode);  // need to add in code to disconnect circuit if changing gains, so no transient voltages occur...
               resetElectrodeConfig(); // put network in open circuit configuration while switching gains, then restore (try to limit transients by changing amplifier gain)
+              Serial.print("Change TIA Gain: ");
+              Serial.print(TIAGainCode);
+              Serial.print(" local TIA Code: ");
+              Serial.print(localTIAGainCode);
+              Serial.print('\t');
               delay(5000);  // let transient currents die down from switching gain...
           }
           
           testImpedance(f, excitationCode);  // this function will take the impedance measurement- for EIS scan amplitude is prescribed; but allow PGA and TIA gains to be adjusted to get good reading...
             // function also needs to know the bias so it can determine the margin for "rawadmittance" value before saturation occurs...
           AD5933_Connect(false);  // as soon as measurement is complete disconnect synthesizer signal from network (will experience major voltage transient going into standby mode in preparation for next measurement)
-          /*Serial.print("mG Margin: ");
-          Serial.print(admittanceMargin);
-          Serial.print(" raw admittance ");
-          Serial.print(rawAdmittance());
-          Serial.print('\t');
-          //optimalImpedanceSetting(f, excitationCode, false); // just send results from each available setting at current excitation code - we can evaluate which is best to improve selection algorithm
-          if ((rawAdmittance() > admittanceMargin) || (rawAdmittance() < 100)) { // signs that we're saturating- drop TIA gains...
-                //optimalImpedanceSetting(f, excitationCode); // check to see we're not near saturation...
-                if (PGAx5Setting) {
-                    PGAx5Setting = false;
-                }
-                else if (TIAGainCode > 0x00) {
-                    TIAGainCode--;
-                    setTIAGain(TIAGainCode);
-                } // just keep dialing down the sensitivity by factor of 2 or 5 at a time...
-                //AD5933_biasMeasure(f);
-                //DAC_AD5061_SetCalibratedVoltage(biasVoltage - AD5933_BiasV); // compensate for fact that AD5933 TIA is not on same virtual ground as LMP7721...
-          }
-          testImpedance(f, excitationCode);*/
           
           lastKnownZ = impedanceMagnitude();
           lastKnownPhase = correctPhase();
@@ -608,7 +610,7 @@ void ElectrochemicalImpedanceSpectroscopy() {
           double factual = f;
           if (!MCLKext) factual *= fCLK_Factor;  // apply correction for calibrated deviation from specified internal AD5933 clock speed on given device
 
-          /*Serial.print("mFreq: ");
+          Serial.print("mFreq: ");
           Serial.print(factual, 1);
           Serial.print(" setting ");
           Serial.print(AD5933settingIndex());
@@ -616,7 +618,7 @@ void ElectrochemicalImpedanceSpectroscopy() {
           Serial.print(rawAdmittance());
           Serial.print(" impedance ");
           Serial.print(lastKnownZ);
-          Serial.print('\t');*/
+          Serial.print('\t');
 
           Serial.print('f');  // code that data is coming- send cell potential first, then current using tab delimitation
           Serial.print(factual);
@@ -835,4 +837,3 @@ void voltammetryScanSettings() {
 void EISLowFrequencySettings() {
     ADS1220_Settings(0x21, 0xd0, 0x00); // here we are only going to read TIA current (so leave mux / high nybble of reg00 as 0x2x; PGA disabled, so reg00 = 0x21; reg01 highest data rate 2000sps so 0xd0
 }
-

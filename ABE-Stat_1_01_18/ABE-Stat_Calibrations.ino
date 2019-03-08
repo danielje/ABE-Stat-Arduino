@@ -49,9 +49,7 @@
     }
     Serial.print('\t');
 
-    AD5933_PowerOn(true); // turn power on to AD5933 so we can change electrode configuration to 2 electrode
     twoElectrodeConfig();
-    AD5933_PowerOn(false);  // then turn it back off to start...
 
     completedCalibrationsCode = 0x0000;
     calibratedAD5933biasAndGperVolt = false;
@@ -144,7 +142,8 @@
   */
  void calibratefCLK() {
           MCLKext = false;  // make sure we use the internal AD5933 clock that we're calibrating!
-          double nominalFrequency = fCLK / (8.0 * 1024.0);  // this value should be 2047.85 Hz for fCLK nominal value of 16.776 MHz
+          AD5933_Connect(true);
+          double nominalFrequency = fCLK / 8.0 / 1024.0;  // this value should be 2047.85 Hz for fCLK nominal value of 16.776 MHz
           byte lowControlNybble = startAD5933Synthesizer(nominalFrequency, 0x03); // start AD5933 DDS at nominal frequency and highest amplitude so user can easily see DDS signal!
           while (!Serial.available());  // wait for user to send back observed frequency...
           if (Serial.read() == 'w') { // code with returning observed frequency should be "w"
@@ -155,7 +154,7 @@
           }
           byte AD5933_PowerDown = (0xa0 | lowControlNybble);  // control register 1 value to put AD5933 in "power-down" mode
           i2c_Write(AD5933NetworkAnalyzer, AD5933_Control, AD5933_PowerDown);   // write power down byte to control register...
-          AD5933_PowerOn(false);  // turn power off
+          AD5933_Connect(false);
  }
 
 /*
@@ -163,7 +162,7 @@
  * Then find the actual voltage for lowest and highest voltage sets...
  */
  void calibrateDAC() {
-      AD5933_PowerOn(false);  // remove power from AD5933 for calibrating DAC
+      AD5933_PowerDown();  // remove power from AD5933 for calibrating DAC
       DAC_AD5061_Connect(true); // connect AD5061 Digital to Analog Converter from network
       AD5933_Connect(false);  // AND connect network analyzer input (here we are testing the superposition of the two signal sources)
       setTIAGain(0x01);  // make sure selected feedback resistor connected for TIA (otherwise non-ideal op-amp performance can bias the "reference"
@@ -335,7 +334,7 @@ void calibrateZ() {
             Serial.print('c');  // flag that the linear calibration range has been completed (Android can now Execute_LSR() with compiled data)
             // completed calibration of performance at given settings over frequencies with internal AD5933 clock
 
-            AD5933_PowerOn(false);  // turn off power to let device rest between calibration settings
+            AD5933_PowerDown();  // turn off power to let device rest between calibration settings
             delay(200);  // wait a little to make sure calibration data come back, and to prevent MCU from timing out...
             while (Serial.available()) {
               char commandant = Serial.read();
@@ -401,7 +400,7 @@ void calibrateZ() {
             }
             Serial.print('c');  // flag that the linear calibration range has been completed (Android can now Execute_LSR() with compiled data)
 
-            AD5933_PowerOn(false);  // turn off power to let device rest between calibration settings
+            AD5933_PowerDown();  // turn off power to let device rest between calibration settings
             delay(200);  // wait a little to make sure calibration data come back, and to prevent MCU from timing out...
             while (Serial.available()) {
               char commandant = Serial.read();
@@ -439,7 +438,7 @@ void calibrateZ() {
  * Calibrate TIA gain
  */
 void calibrateGain() {
-    AD5933_PowerOn(false);  // remove power from AD5933- just a noise source for measuring feedback resistors / gains...
+    AD5933_PowerDown();  // remove power from AD5933- just a noise source for measuring feedback resistors / gains...
     int index = Serial.parseInt();
     if (index < 0) index = 0;
     else if (index > 0x03) index = 0x03;
@@ -528,11 +527,10 @@ void calibrateGain() {
         EEPROM_Double_Write(AD5933_BIAS_V_EEPROM_ADDRESS, AD5933_BiasV);
         EEPROM.commit();
         calibratedAD5933biasAndGperVolt = true; // we've calibrated values, so don't overwrite again this invocation of calibration app...
-        AD5933_PowerOn(false);  // remove power from AD5933- just a noise source for measuring feedback resistors / gains...
+        AD5933_PowerDown();  // remove power from AD5933- just a noise source for measuring feedback resistors / gains...
         AD5933_Connect(false);  // AND connect network analyzer input (here we are testing the superposition of the two signal sources)
         MCLKext = false;  // also make sure external clock of AD5933 is disabled
         MCLK_Enable(false);  // leave off external clock on AD5933 for this measurement (make measurement with internal clock)
         TIA_LMP7721();  // connect to TIA amplifier LMP7721 to ensure virtual ground reference...
     }
 }
-

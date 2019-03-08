@@ -270,6 +270,16 @@ void SPI_Chip_Select(int device) {
  }
 
  /*
+  * use control register of AD5933 to put device into power down mode (better
+  * alternative than removing power from supply pin, as this slows down i2c data 
+  * transfer, resulting in missed commands / failure to update ADG715 switch states
+  * for electrode configuration and excitation signal composition
+  */
+  void AD5933_PowerDown() {
+      i2c_Write(AD5933NetworkAnalyzer, AD5933_Control, 0xa0);
+  }
+
+ /*
  * Conduct through PMOS to power external 250kHz clock for AD5933
  */
  void MCLK_Enable(boolean powerStatus) {

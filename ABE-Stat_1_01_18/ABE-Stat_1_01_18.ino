@@ -83,7 +83,20 @@
     currents would exceed 10 uA under the desired potential, using highest gain setting. Symptom of problem is big tail on starting redox current...
 
   ABE-Stat_1_01_16, starting October 28, 2018; checks current and increases gain if observed current is sub-optimal (i.e. predicted TIA voltage from increased gain does not 
-     saturate amplifier)...
+     saturate amplifier) (ultimately algorithm uses previous impedance estimate to predict settings for new measurement to prevent saturation- approach works best starting at
+     low frequencies with high impedance, and using small increments in EIS frequency measurement so large changes in impedance don't occur between successive measurements...
+
+  ABE-Stat_1_01_17, starting November 19, 2018; change thresholds for predicting saturation (i.e. some fixed resistor EIS increases in "observed" impedance when measuring with network
+    analyzer (i.e. above 60 Hz impedance reported for ~3300 Ohm resistor is ~5100 Ohm). Also try to fix problem where second EIS scan gets hung up in open circuit configuration.
+    Predicted TIA voltage threshold changed from 1.2 V to 1.0 V...
+
+  ABE-Stat_1_01_18, March 7, 2019- remove all function calls to AD5933_PowerOn(false), and replace with 
+    new function AD5933_PowerDown() that maintains voltage to supply pin of AD5933, but puts
+    device into power down mode to save power and shut of unused systems that might cause noise in 
+    analytical methods implemented with other hardware. Shutting off power to AD5933 altogether
+    drags the data pin on i2c bus so that many instructions to change ADG715 settings (for
+    electrode configuration and excitation signal composition) are missed resulting in incorrect
+    potentiostat behavior / measurements.
   
   Shift register outputs (2x serialized 74HC595, O00 - O15):
       O00 74LVG1G53 switch1 signal (!CS to !CS1 (ADS1220/ "0") or !CS2 (AD5061/ "1")
@@ -189,7 +202,7 @@ by Daniel M. Jenkins
 #define fCLK                          16776000  // 16.776 MHz internal clock on AD5933
 #define fMCLK                         250000    // 250 kHz external clock to MCLK of AD5933
 
-const String firmWareVersion = "vabestat1.01.16\t";
+const String firmWareVersion = "vabestat1.01.18\t";
 
 // Addresses in EEPROM for calibration constants/ coefficients
 const int EEPROMBlockSize = sizeof(double); // so maximum double precision values to store in EEPROM is 512 (4096 / 8)
@@ -330,6 +343,7 @@ void setup()
   Wire.setClock(400000L); // upper limit on speed- AD5933 and ADG715 max clock rate for SCL is 400000Hz// to be safe comment this out...
   //Wire.setClock(100000L); // apparently rising edge time constant on SDA is ~1us on some devices, so slow clock down a little bit for clear communication...
   //Wire.setClock(50000L);
+  // operate Wire / i2c port at slower speed- when AD5933 is off capacitance of inputs slows down data line transitions :-(
 
   Serial.begin(BAUD);
   
@@ -360,7 +374,8 @@ void setup()
   
   DAC_AD5061_Connect(true); // connect AD5061 Digital to Analog Converter from network
   AD5933_Connect(false);  // disconnect network analyzer input by default
-  AD5933_PowerOn(false);  // and remove power from it (will just add noise to voltammetric applications if not used)
+  AD5933_PowerOn(true); // make sure supply reaches power pin of AD5933 (otherwise it will slow down i2c data line)
+  AD5933_PowerDown();  // and just put in power down mode digitally (to save current and diminish noise contributions of DDS and other AD5933 systems)
   setTIAGain(0x01);  // make sure selected feedback resistor connected for TIA
   TIA_LMP7721();
   shutoffTime = timeoutInterval + millis();
@@ -499,6 +514,3 @@ void blinkOff() {
     }
     devicePower(false);
 }
-
-
-

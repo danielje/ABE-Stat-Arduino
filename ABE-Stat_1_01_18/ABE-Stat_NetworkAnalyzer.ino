@@ -515,4 +515,3 @@ double rawPhase() {
       repeatedAD5933Measurement = false;
       return lowCtrlNybble; // make sure we send this back to the calling function so they can reassemble commands to AD5933 with same excitation and PGA settings...
  }
-

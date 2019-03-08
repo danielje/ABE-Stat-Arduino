@@ -11,7 +11,7 @@
  * make sure value / linearity is confirmed by measurement at a lower gain / input voltage setting...
  */
 double cellResistance() {
-    AD5933_PowerOn(false);  // remove power from AD5933 network- not being used and will just add noise...
+    AD5933_PowerDown();  // remove power from AD5933 network- not being used and will just add noise...
     //twoElectrodeConfig();
     DAC_AD5061_Connect(true);
     AD5933_Connect(false);
@@ -79,7 +79,7 @@ void printGainCode() {
  * Calling this function will also set the TIAGain at the highest value where linearity / no saturation is ensured
  */
 double cellCurrent() {
-    AD5933_PowerOn(false);  // remove power from AD5933 network- not being used and will just add noise...
+    AD5933_PowerDown();  // remove power from AD5933 network- not being used and will just add noise...
     //Serial.print("mMeasuring current...\t");
     DAC_AD5061_Connect(true);
     boolean quit = false;
@@ -154,7 +154,7 @@ double cellCurrent() {
  * returns the cell potential in mV
  */
  double cellPotential() {
-    AD5933_PowerOn(false);  // remove power from AD5933 network- not being used and will just add noise...
+    AD5933_PowerDown();  // remove power from AD5933 network- not being used and will just add noise...
     AD5933_Connect(false);
     TIA_LMP7721();
     double vCell = -ADS1220_Diff_Voltage(0x04, 0x00) / 1000.0; // convert from uV to mV
@@ -369,4 +369,3 @@ void ADS1220_SetSingleCtrlRegister(byte address, byte setting) {
     SPI.endTransaction();
     digitalWrite(CS_RCK, HIGH);  // pull corresponding chip select high (release device)Release_Chip_Select();
 }
-
